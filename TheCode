@@ -1,0 +1,139 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Oct  1 10:58:10 2023
+
+@author: HP
+"""
+import PySimpleGUI as sg
+import cdsapi
+import numpy as np
+import matplotlib.pyplot as plt
+from windrose import WindroseAxes  # Import WindroseAxes
+import xarray as xr
+import io
+
+# Define your API key for accessing ERA5 data (replace with your actual key)
+api_key = "83548:5dba7fa8-a83a-4e34-8934-56fb967ed7b3"
+
+# Define the name of the NetCDF file to be downloaded
+output_nc_file = "era5_wind_data.nc"
+
+# Function to download ERA5 data
+def download_era5_data(api_key, latitude, longitude, start_year, end_year, start_month, end_month, start_day, end_day, time_str):
+    c = cdsapi.Client()
+    c.retrieve(
+        "reanalysis-era5-single-levels",
+        {
+            "product_type": "reanalysis",
+            "variable": ["10m_u_component_of_wind", "10m_v_component_of_wind"],
+            "year": [str(year) for year in range(start_year, end_year + 1)],
+            "month": [str(month).zfill(2) for month in range(start_month, end_month + 1)],
+            "day": [str(day).zfill(2) for day in range(start_day, end_day + 1)],
+            "time": [time_str],
+            "area": [latitude - 1, longitude - 1, latitude + 1, longitude + 1],  # Define a bounding box
+            "format": "netcdf",
+        },
+        output_nc_file,  # Use the variable for the output file
+    )
+
+# Function to save data to CSV
+def save_to_csv():
+    data = xr.open_dataset(output_nc_file)
+    df = data.to_dataframe()
+    csv_filename = output_nc_file.replace('.nc', '.csv')
+    df.to_csv(csv_filename)
+    sg.popup(f"Data saved to {csv_filename}", title="CSV Saved")
+    data.close()
+
+# Function to plot wind rose
+def plot_wind_rose(api_key, latitude, longitude, start_year, end_year, start_month, end_month, start_day, end_day, time_str):
+    
+    # Download ERA5 data
+    # download_era5_data(api_key, latitude, longitude, start_year, end_year, start_month, end_month, start_day, end_day, time_str)
+
+    # Load ERA5 data
+    data = xr.open_dataset(output_nc_file)
+    u_component = data["u10"]  # 10m u-component of wind
+    v_component = data["v10"]  # 10m v-component of wind
+
+    # Calculate wind speed and direction
+    wind_speed = np.sqrt(u_component**2 + v_component**2)
+    wind_direction = np.arctan2(v_component, u_component) * 180 / np.pi  # Convert radians to degrees
+
+    # Plot wind rose with filtered data
+    plt.figure(figsize=(10, 10))
+    ax = WindroseAxes.from_ax()
+    ax.bar(
+        wind_direction.values.flatten(),
+        wind_speed.values.flatten(),
+        normed=True,
+        opening=0.8,
+        edgecolor="white",
+    )
+    # Add legend and title
+    ax.legend(title="Wind Speed (m/s)")
+    ax.set_title(f'Wind Rose - {start_year}\nfrom month: {start_month} to month: {end_month}\n @ lat:{latitude} - Lon:{longitude} ')
+
+    # Convert the plot to bytes with size
+    img_bytes = io.BytesIO()
+    plt.savefig(img_bytes, format='png', bbox_inches='tight')  # Specify size with bbox_inches
+    img_bytes.seek(0)
+
+    # Close the dataset object
+    data.close()
+
+    return img_bytes
+
+# GUI layout
+layout = [
+    [sg.Text(("Latitude"), size=(10, 1)), sg.InputText(size=(15, 1), key="latitude")],
+    [sg.Text(("Longitude"), size=(10, 1)), sg.InputText(size=(15, 1), key="longitude")],
+    [sg.Text(("Start Year"), size=(10, 1)), sg.InputText(size=(15, 1), key="start_year")],
+    [sg.Text(("End Year"),size=(10, 1)), sg.InputText(size=(15, 1), key="end_year")],
+    [sg.Text(("Start Month"),size=(10, 1)), sg.InputText(size=(15, 1), key="start_month")],
+    [sg.Text(("End Month"),size=(10, 1)), sg.InputText(size=(15, 1), key="end_month")],
+    [sg.Text(("Start Day"), size=(10, 1)), sg.InputText(size=(15, 1), key="start_day")],
+    [sg.Text(("End Day"), size=(10, 1)), sg.InputText(size=(15, 1), key="end_day")],
+    [sg.Text(("HH"), size=(10, 1)), sg.InputText(size=(15, 1), key="hour")],
+    [sg.Text(("MM"), size=(10, 1)), sg.InputText(size=(15, 1), key="minute")],
+    [sg.Button("Plot"), sg.Button("Save to CSV"), sg.Button("Exit")],
+    [sg.Text('© GazEol Renouvelable 2024', justification='center', size=(60, 1))]
+]
+
+# Create the GUI window
+window = sg.Window("Wind Rose Plotter", layout, size=(350, 400))
+
+# Event loop
+while True:
+    event, values = window.read()
+    if event == sg.WINDOW_CLOSED or event == "Exit":
+        break
+    if event == "Plot":
+        latitude = float(values["latitude"])
+        longitude = float(values["longitude"])
+        start_year = int(values["start_year"])
+        end_year = int(values["end_year"])
+        start_month = int(values["start_month"])
+        end_month = int(values["end_month"])
+        start_day = int(values["start_day"])
+        end_day = int(values["end_day"])
+        hour = values["hour"]
+        minute = values["minute"]
+        
+        # Adjust the time format for the API request
+        time_str = f"{hour}:{minute}"
+        
+        # Download ERA5 data with specified day and time
+        download_era5_data(api_key, latitude, longitude, start_year, end_year, start_month, end_month, start_day, end_day, time_str)
+        
+        # Plot wind rose with downloaded data
+        img_bytes = plot_wind_rose(api_key, latitude, longitude, start_year, end_year, start_month, end_month, start_day, end_day, time_str)
+        
+        # Display plot in a separate window
+        sg.Window('Wind Rose Plot', [[sg.Image(data=img_bytes.read())]], finalize=True, size=(800, 650)).read(close=True)
+
+
+    if event == "Save to CSV":
+        save_to_csv()
+
+window.close()
