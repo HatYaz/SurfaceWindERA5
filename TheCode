@@ -13,7 +13,7 @@ import xarray as xr
 import io
 
 # Define your API key for accessing ERA5 data (replace with your actual key)
-api_key = "83548:5dba7fa8-a83a-4e34-8934-56fb967ed7b3"
+api_key = ""
 
 # Define the name of the NetCDF file to be downloaded
 output_nc_file = "era5_wind_data.nc"
